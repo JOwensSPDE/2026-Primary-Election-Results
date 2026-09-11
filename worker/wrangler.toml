@@ -1,0 +1,20 @@
+name = "delaware-primary-results-2026"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+RESULTS_SOURCE_URL = "https://elections.delaware.gov/reports/PR2026.html"
+ALLOWED_ORIGIN = "https://spotlightdelaware.org"
+CACHE_SECONDS = "15"
+
+# Recommended: create this namespace before deployment with:
+# npx wrangler kv namespace create RESULTS_CACHE
+# Then uncomment and replace the id below. KV stores the last good update so
+# the page can keep showing results during a temporary source-site outage.
+# [[kv_namespaces]]
+# binding = "RESULTS_CACHE"
+# id = "replace-with-your-kv-namespace-id"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
