@@ -7,8 +7,8 @@ A responsive election-night results page and Cloudflare Worker for Delaware's Se
 - Spotlight Delaware styling with Montserrat headlines and Barlow body text.
 - The requested race order, including New Castle County Recorder of Deeds last.
 - 80 qualified candidates across 33 party-specific contests.
-- 78 optimized circular headshots, with initials fallbacks for Dawn Briggs and LaDonna Graham.
-- Vote totals, vote-share percentages, a stacked vote-share graphic, and statewide precinct-reporting progress.
+- 80 optimized circular headshots, covering every candidate currently included.
+- Vote totals, vote-share percentages, party-coded stacked vote-share graphics (blue for Democratic races and red for Republican races), and statewide precinct-reporting progress.
 - 20-second browser refreshes beginning at 8 p.m. Eastern on election night.
 - A Cloudflare Worker parser for Delaware's statewide result tables.
 - 15-second edge caching and optional KV storage for the last successful update.
@@ -92,11 +92,13 @@ Images use normalized candidate filenames in `public/assets/headshots/`. For exa
 
 Use a square 400×400 JPG. The CSS applies the circular crop. If an official result uses an unexpected spelling, add an uppercase name override in `public/data/headshots.js`.
 
-To rebuild the supplied headshots from the original ZIP:
+To rebuild the main supplied headshot batch from the original ZIP:
 
 ```bash
 ./scripts/prepare_headshots.sh "/path/to/Election headshots.zip"
 ```
+
+The Dawn Briggs and LaDonna Graham files were supplied separately and are already included in the deployment package.
 
 ## Election-night preflight
 

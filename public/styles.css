@@ -6,8 +6,8 @@
   --line: #dcdedb;
   --spotlight-blue: #0b4d78;
   --spotlight-blue-dark: #07344f;
-  --dem: #2774c8;
-  --rep: #c84943;
+  --dem: #1769aa;
+  --rep: #c43d38;
   --shadow: 0 13px 34px rgba(20, 31, 41, 0.08);
 }
 
@@ -80,6 +80,7 @@ h1 { max-width: 820px; margin: 0; font: 800 clamp(42px, 7vw, 78px)/.97 "Montserr
 .card-head h3 { margin: 10px 0 0; font: 800 23px/1.12 "Montserrat", sans-serif; letter-spacing: -.025em; }
 .share-bar { display: flex; height: 13px; background: #e7e9e9; overflow: hidden; }
 .share-segment { width: 0; height: 100%; min-width: 0; transition: width .6s ease; }
+.share-segment + .share-segment { box-shadow: inset 2px 0 0 rgba(255,255,255,.9); }
 .candidate-list { margin: 0; padding: 6px 21px 12px; list-style: none; }
 .candidate { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 82px; border-bottom: 1px solid #eceeec; }
 .candidate:last-child { border-bottom: 0; }

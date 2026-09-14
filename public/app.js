@@ -290,8 +290,8 @@
   }
 
   function candidateColor(party, index, count) {
-    const dem = ["#125da7", "#2774c8", "#4b90d3", "#77abe0"];
-    const rep = ["#ac332e", "#c84943", "#d96b66", "#e6928e"];
+    const dem = ["#0b4d78", "#1769aa", "#438bc0", "#77b0d4"];
+    const rep = ["#972d29", "#c43d38", "#d76a65", "#e69a96"];
     const colors = party === "Republican" ? rep : dem;
     if (count === 1) return colors[0];
     return colors[index % colors.length];
