@@ -1,4 +1,4 @@
-const DEFAULT_SOURCE = "https://elections.delaware.gov/reports/PR2026.html";
+const DEFAULT_SOURCE = "https://elections.delaware.gov/results/enr/PR2026.html?group=Statewide&filter=";
 const CACHE_KEY = "delaware-primary-results-2026:last-good";
 const STATUS_KEY = "delaware-primary-results-2026:refresh-status";
 const DEFAULT_REFRESH_START = "2026-09-15T19:45:00-04:00";
@@ -96,6 +96,7 @@ async function refreshResults(env) {
   if (!env.RESULTS_CACHE?.put) throw new Error("RESULTS_CACHE KV binding is required for scheduled refreshes.");
 
   const sourceUrl = env.RESULTS_SOURCE_URL || DEFAULT_SOURCE;
+  const dataUrl = resultsDataUrl(sourceUrl);
   const previous = await readRefreshStatus(env);
   const now = new Date();
   const attemptAt = now.toISOString();
@@ -104,22 +105,22 @@ async function refreshResults(env) {
   if (Number.isFinite(nextAttemptMs) && nextAttemptMs > now.getTime()) return;
 
   try {
-    const upstream = await fetch(sourceUrl, {
+    const upstream = await fetch(dataUrl, {
       headers: {
-        "accept": "text/html,application/xhtml+xml",
-        "user-agent": "Spotlight Delaware election-results monitor/1.1 (+https://spotlightdelaware.org)",
+        "accept": "application/json,text/html;q=0.5",
+        "user-agent": "Spotlight Delaware election-results monitor/1.2 (+https://spotlightdelaware.org)",
       },
       cf: { cacheTtl: 0, cacheEverything: false },
     });
 
     if (!upstream.ok) {
-      const error = new Error(`Delaware results page returned HTTP ${upstream.status}`);
+      const error = new Error(`Delaware results feed returned HTTP ${upstream.status}`);
       error.status = upstream.status;
       throw error;
     }
 
-    const html = await upstream.text();
-    const parsed = parseResultsHtml(html, sourceUrl);
+    const payload = await upstream.text();
+    const parsed = parseResultsPayload(payload, sourceUrl);
     const body = { ...parsed, fetchedAt: attemptAt, stale: false };
 
     await Promise.all([
@@ -151,6 +152,92 @@ function retryDelaySeconds(error, failures) {
   if (status === 429) return Math.min(900, 60 * (2 ** Math.min(failures, 4)));
   if (!status || status >= 500) return Math.min(300, 60 * (2 ** Math.min(failures - 1, 3)));
   return 60;
+}
+
+export function resultsDataUrl(sourceUrl = DEFAULT_SOURCE) {
+  const url = new URL(sourceUrl);
+  const match = url.pathname.match(/^(.*\/)([a-z0-9_-]+)\.html$/i);
+  if (!match || !url.pathname.includes("/results/enr/")) return url.toString();
+  url.pathname = `${match[1]}Election_StatewideResults_ID_${match[2].toUpperCase()}.json`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+export function parseResultsPayload(payload, sourceUrl = DEFAULT_SOURCE) {
+  if (!payload || typeof payload !== "string") throw new Error("The source response was empty.");
+  const trimmed = payload.trim();
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) return parseResultsJson(trimmed, sourceUrl);
+  return parseResultsHtml(payload, sourceUrl);
+}
+
+export function parseResultsJson(input, sourceUrl = DEFAULT_SOURCE) {
+  let rows;
+  try {
+    rows = typeof input === "string" ? JSON.parse(input) : input;
+  } catch {
+    throw new Error("The Delaware results feed returned invalid JSON.");
+  }
+
+  if (!Array.isArray(rows) || !rows.length) throw new Error("The Delaware results feed contained no candidate rows.");
+
+  const validRows = rows.filter(row => row && row["Contest Title"] && row["Party Name"] && row["Candidate Name"]);
+  if (!validRows.length) throw new Error("The Delaware results feed did not contain recognizable candidate records.");
+
+  const contestMap = new Map();
+  for (const row of validRows) {
+    const title = String(row["Contest Title"]).trim();
+    const party = String(row["Party Name"]).replace(/\s+Party$/i, "").trim();
+    const key = `${title}\u0000${party}`;
+    if (!contestMap.has(key)) {
+      contestMap.set(key, {
+        id: slug(`${title}-${party}`),
+        title,
+        party,
+        sortOrder: parseInteger(row["Contest Sorting Order"]),
+        candidates: [],
+      });
+    }
+    contestMap.get(key).candidates.push({
+      name: String(row["Candidate Name"]).trim(),
+      votes: parseInteger(row["Total Votes"] ?? 0),
+      percentage: parseFloatSafe(row.Percentage),
+      machineVotes: parseInteger(row["Machine Votes"] ?? 0),
+      absenteeVotes: parseInteger(row["Absentee Votes"] ?? 0),
+      earlyVotes: parseInteger(row["Early Voting Votes"] ?? 0),
+      position: parseInteger(row.Pos),
+    });
+  }
+
+  const contests = [...contestMap.values()]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(contest => ({
+      id: contest.id,
+      title: contest.title,
+      party: contest.party,
+      candidates: contest.candidates
+        .sort((a, b) => a.position - b.position)
+        .map(({ position, ...candidate }) => candidate),
+    }));
+
+  const reported = Math.max(...validRows.map(row => parseInteger(row["Precincts Reported"])));
+  const total = Math.max(...validRows.map(row => parseInteger(row["Total Precincts"])));
+  const first = validRows[0];
+
+  return {
+    election: first["Election Name"] || "2026 Delaware Primary Election",
+    electionDate: first["Election Date"] || "2026-09-15",
+    status: first["Results Type"] || "UNOFFICIAL RESULTS",
+    sourceUpdatedAt: first.ReportTime || null,
+    sourceUrl,
+    reporting: {
+      reported,
+      total,
+      percentage: percent(reported, total),
+      label: "Election districts reporting statewide",
+    },
+    contests,
+  };
 }
 
 export function parseResultsHtml(html, sourceUrl = DEFAULT_SOURCE) {

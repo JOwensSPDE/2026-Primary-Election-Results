@@ -12,7 +12,7 @@ A responsive election-night results page and Cloudflare Worker for Delaware's Se
 - Tighter, face-centered framing across all 80 candidate portraits without altering candidate appearance.
 - Paired desktop rows for the Democratic and Republican U.S. Senate contests and for Attorney General and State Treasurer; the cards stack in the same order on mobile.
 - 20-second browser refreshes beginning at 8 p.m. Eastern on election night, served entirely from Cloudflare KV.
-- A Cloudflare Worker parser for Delaware's statewide result tables.
+- A Cloudflare Worker parser for Delaware's official statewide results data feed.
 - A scheduled source refresh once per minute from 7:45 p.m. through 8 a.m. Eastern, so reader traffic never multiplies requests to Delaware.
 - Permanent KV storage for the last successful result and automatic retry delays after source errors or rate limiting.
 - A clearly labeled design-preview mode using fictional totals.
@@ -38,11 +38,11 @@ Open `http://localhost:4173/?demo=1` to see the complete design with fictional d
    npx wrangler login
    ```
 
-2. Confirm the live results URL. The project currently expects:
+2. Confirm the live results page URL. The project now uses:
 
-   `https://elections.delaware.gov/reports/PR2026.html`
+   `https://elections.delaware.gov/results/enr/PR2026.html?group=Statewide&filter=`
 
-   If Delaware publishes a different address, change `RESULTS_SOURCE_URL` in `worker/wrangler.toml`. The official 2026 page is not available before election night, so this must be part of the election-night preflight.
+   The Worker derives Delaware's official `Election_StatewideResults_ID_PR2026.json` data feed from this public page URL. If Delaware changes the page address, update `RESULTS_SOURCE_URL` in `worker/wrangler.toml`.
 
 3. Confirm the `RESULTS_CACHE` binding in `worker/wrangler.toml`. This Spotlight Delaware package is already configured with namespace ID `510fd34e357b4298ab22ba6d17c688cb`. If deploying from a different Cloudflare account, create a replacement namespace:
 
@@ -108,7 +108,7 @@ The Dawn Briggs and LaDonna Graham files were supplied separately and are alread
 ## Election-night preflight
 
 - Confirm Delaware's results URL from its official results index.
-- Run `npm run smoke:source -- https://elections.delaware.gov/reports/PR2026.html` as soon as the page exists.
+- Run `npm run smoke:source -- "https://elections.delaware.gov/results/enr/PR2026.html?group=Statewide&filter="` before deployment.
 - Verify `/api/health` and `/api/results` on the deployed Worker.
 - Before 7:45 p.m., `/api/health` can correctly report `cacheReady: false`; the first successful scheduled refresh changes it to `true`.
 - Keep `npx wrangler tail --config worker/wrangler.toml` open to monitor scheduled refreshes and source errors.
@@ -119,6 +119,6 @@ The Dawn Briggs and LaDonna Graham files were supplied separately and are alread
 
 ## Data behavior
 
-Once per minute during the configured election-night window, the Worker fetches Delaware's page, extracts the `#statewide` section, reads the update time and statewide precinct count, and stores the parsed JSON in KV. Public `/api/results` requests read only from KV, so any number of readers still produces no additional traffic to Delaware. The front end keeps only the requested 2026 contests and displays them in a fixed editorial order. Candidate names in the seed file are used to stabilize capitalization and photo matching.
+Once per minute during the configured election-night window, the Worker fetches Delaware's official statewide JSON feed, reads the update time and statewide election-district count, and stores normalized results in KV. Public `/api/results` requests read only from KV, so any number of readers still produces no additional traffic to Delaware. The front end keeps only the requested 2026 contests and displays them in a fixed editorial order. Candidate names in the seed file are used to stabilize capitalization and photo matching.
 
-The HTML parser deliberately returns an error if Delaware removes or renames the statewide section. A failed scheduled refresh never overwrites the last good result. During the active refresh window, the API marks the saved result stale after three minutes without a successful source check and displays a warning instead of silently returning incomplete totals.
+The parser deliberately returns an error if Delaware's feed is empty, invalid, or no longer contains recognizable candidate records. A failed scheduled refresh never overwrites the last good result. During the active refresh window, the API marks the saved result stale after three minutes without a successful source check and displays a warning instead of silently returning incomplete totals.

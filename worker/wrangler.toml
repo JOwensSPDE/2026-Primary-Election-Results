@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 
 [vars]
-RESULTS_SOURCE_URL = "https://elections.delaware.gov/reports/PR2026.html"
+RESULTS_SOURCE_URL = "https://elections.delaware.gov/results/enr/PR2026.html?group=Statewide&filter="
 ALLOWED_ORIGIN = "https://spotlightdelaware.org,https://jowensspde.github.io"
 CACHE_SECONDS = "15"
 STALE_AFTER_SECONDS = "180"

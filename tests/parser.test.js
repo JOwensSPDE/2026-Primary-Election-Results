@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { parseResultsHtml, shouldRefreshAt } from "../worker/src/index.js";
+import worker, {
+  parseResultsHtml,
+  parseResultsJson,
+  parseResultsPayload,
+  resultsDataUrl,
+  shouldRefreshAt,
+} from "../worker/src/index.js";
 
 const fixture = `
   <p id="lastUpdated">Data as of 09/15/2026 20:44:52</p>
@@ -19,6 +25,47 @@ const fixture = `
   </div>
   <div id="byrepdist"></div>`;
 
+const jsonFixture = [
+  {
+    "Election Id": "PR2026",
+    "Election Name": "2026 Primary Election",
+    "Election Date": "2026-09-15",
+    "Results Type": "UNOFFICIAL RESULTS",
+    "Total Precincts": 530,
+    "Precincts Reported": 120,
+    "Party Name": "Democratic Party",
+    "Contest Sorting Order": 200,
+    "Contest Title": "U.S. Senator",
+    "Candidate Name": "JANE DOE",
+    "Pos": 1,
+    "Machine Votes": "1,000",
+    "Absentee Votes": "200",
+    "Early Voting Votes": "300",
+    "Total Votes": "1,500",
+    "Percentage": 60,
+    "ReportTime": "2026-09-15T20:44:52-04:00",
+  },
+  {
+    "Election Id": "PR2026",
+    "Election Name": "2026 Primary Election",
+    "Election Date": "2026-09-15",
+    "Results Type": "UNOFFICIAL RESULTS",
+    "Total Precincts": 530,
+    "Precincts Reported": 120,
+    "Party Name": "Democratic Party",
+    "Contest Sorting Order": 200,
+    "Contest Title": "U.S. Senator",
+    "Candidate Name": "JOHN SMITH",
+    "Pos": 2,
+    "Machine Votes": "700",
+    "Absentee Votes": "100",
+    "Early Voting Votes": "200",
+    "Total Votes": "1,000",
+    "Percentage": 40,
+    "ReportTime": "2026-09-15T20:44:52-04:00",
+  },
+];
+
 test("parses statewide contests, parties, totals and reporting", () => {
   const result = parseResultsHtml(fixture, "https://example.com/results");
   assert.equal(result.sourceUpdatedAt, "09/15/2026 20:44:52");
@@ -34,6 +81,29 @@ test("parses statewide contests, parties, totals and reporting", () => {
 
 test("fails loudly when the statewide markup changes", () => {
   assert.throws(() => parseResultsHtml("<html></html>"), /statewide results section/i);
+});
+
+test("derives Delaware's statewide JSON feed from the public results page", () => {
+  assert.equal(
+    resultsDataUrl("https://elections.delaware.gov/results/enr/PR2026.html?group=Statewide&filter="),
+    "https://elections.delaware.gov/results/enr/Election_StatewideResults_ID_PR2026.json",
+  );
+});
+
+test("parses Delaware's official statewide JSON format", () => {
+  const result = parseResultsJson(jsonFixture, "https://example.com/public-results");
+  assert.equal(result.sourceUpdatedAt, "2026-09-15T20:44:52-04:00");
+  assert.equal(result.reporting.reported, 120);
+  assert.equal(result.reporting.total, 530);
+  assert.equal(result.reporting.percentage, 22.64);
+  assert.equal(result.contests.length, 1);
+  assert.equal(result.contests[0].party, "Democratic");
+  assert.equal(result.contests[0].candidates[0].votes, 1500);
+});
+
+test("auto-detects the official JSON response", () => {
+  const result = parseResultsPayload(JSON.stringify(jsonFixture));
+  assert.equal(result.contests[0].candidates[1].name, "JOHN SMITH");
 });
 
 test("refresh window uses the configured Delaware election-night interval", () => {
