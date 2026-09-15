@@ -4,7 +4,7 @@ A responsive election-night results page and Cloudflare Worker for Delaware's Se
 
 ## What is included
 
-- Spotlight Delaware styling with Montserrat headlines and Barlow body text.
+- Official Spotlight Delaware logo and brand styling with Montserrat headlines and Barlow body text.
 - The requested race order, including New Castle County Recorder of Deeds last.
 - 80 qualified candidates across 33 party-specific contests.
 - 80 optimized circular headshots, covering every candidate currently included.
