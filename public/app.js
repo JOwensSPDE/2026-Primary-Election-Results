@@ -242,6 +242,15 @@
     els.nav.replaceChildren(...groups.map(group => {
       const link = element("a", "", shortNavTitle(group.title));
       link.href = `#${group.id}`;
+      link.addEventListener("click", event => {
+        const target = document.getElementById(group.id);
+        if (!target || window.parent === window) return;
+        event.preventDefault();
+        window.parent.postMessage({
+          type: "spotlight-election-results-scroll",
+          top: Math.max(0, target.getBoundingClientRect().top + window.scrollY - 16),
+        }, "*");
+      });
       return link;
     }));
   }

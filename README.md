@@ -79,14 +79,25 @@ Upload the contents of `public/` to the root of a GitHub Pages repository. The W
 <script>
   window.addEventListener("message", function (event) {
     if (event.origin !== "https://YOUR-GITHUB-ACCOUNT.github.io") return;
+    var frame = document.getElementById("delaware-primary-results");
+    if (event.source !== frame.contentWindow) return;
+
     if (event.data && event.data.type === "spotlight-election-results-height") {
-      document.getElementById("delaware-primary-results").style.height = event.data.height + "px";
+      frame.style.height = event.data.height + "px";
+    }
+
+    if (event.data && event.data.type === "spotlight-election-results-scroll") {
+      var frameTop = frame.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({
+        top: frameTop + Number(event.data.top || 0),
+        behavior: "smooth"
+      });
     }
   });
 </script>
 ```
 
-Replace the GitHub account and repository placeholders. The small listener lets the embedded page report its changing height to Newspack, avoiding nested scrollbars on both desktop and mobile. If Newspack removes the script from the Custom HTML block, use the same responsive full-width iframe treatment as the existing Spotlight Delaware district locator and set a fixed height after checking both layouts.
+Replace the GitHub account and repository placeholders. The listener lets the embedded page report its changing height to Newspack and lets the race-navigation links scroll the parent page to the selected section. If Newspack removes the script from the Custom HTML block, use the same responsive full-width iframe treatment as the existing Spotlight Delaware district locator and set a fixed height after checking both layouts; parent-page anchor scrolling requires the script.
 
 ## Add or replace a headshot
 
