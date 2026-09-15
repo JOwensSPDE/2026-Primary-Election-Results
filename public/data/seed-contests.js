@@ -12,7 +12,7 @@ window.SEED_CONTESTS = [
   { title: "State Senator District 12", party: "Democratic", candidates: ["Nicole Poore", "Keonna Watson"] },
   { title: "State Senator District 14", party: "Democratic", candidates: ["Chris Beardsley", "Kyra L. Hoffner"] },
 
-  { title: "State Representative District 1", party: "Democratic", candidates: ["Nnamdi O. Chukwuocha", "Shane Nicole Darby"] },
+  { title: "State Representative District 1", party: "Democratic", candidates: ["Nnamdi O. Chukwuocha", { name: "Shané Darby", sourceName: "Shane Nicole Darby" }] },
   { title: "State Representative District 2", party: "Democratic", candidates: ["Stephanie T. Bolden", "Michelle H. Booker"] },
   { title: "State Representative District 3", party: "Democratic", candidates: ["Branden Fletcher-Dominguez", "LaDonna Graham", "Yolanda M. McCoy", "Josue O. Ortega"] },
   { title: "State Representative District 6", party: "Democratic", candidates: ["Rachel \"Rae\" Krantz", "Ed Mulvihill", "Ralf Santana"] },
@@ -39,6 +39,10 @@ window.SEED_CONTESTS = [
   id: `${contest.title}-${contest.party}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
   title: contest.title,
   party: contest.party,
-  candidates: contest.candidates.map(name => ({ name, votes: 0, percentage: 0 })),
+  candidates: contest.candidates.map(candidate => ({
+    ...(typeof candidate === "string" ? { name: candidate } : candidate),
+    votes: 0,
+    percentage: 0
+  })),
   seedOrder: index
 }));

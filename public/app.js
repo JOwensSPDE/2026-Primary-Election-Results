@@ -104,11 +104,12 @@
       const result = incoming.find(item => contestKey(item) === contestKey(seed));
       if (!result) return seed;
       const candidates = seed.candidates.map(candidate => {
-        const found = result.candidates.find(item => normalizedName(item.name) === normalizedName(candidate.name));
-        return found ? { ...found, name: candidate.name } : candidate;
+        const sourceName = candidate.sourceName || candidate.name;
+        const found = result.candidates.find(item => normalizedName(item.name) === normalizedName(sourceName));
+        return found ? { ...candidate, ...found, name: candidate.name } : candidate;
       });
       for (const candidate of result.candidates) {
-        if (!candidates.some(item => normalizedName(item.name) === normalizedName(candidate.name))) candidates.push(candidate);
+        if (!candidates.some(item => normalizedName(item.sourceName || item.name) === normalizedName(candidate.name))) candidates.push(candidate);
       }
       return { ...seed, ...result, candidates };
     });
@@ -221,7 +222,7 @@
     img.alt = "";
     img.loading = "lazy";
     img.decoding = "async";
-    img.src = photoFor(candidate.name);
+    img.src = photoFor(candidate.sourceName || candidate.name);
     img.addEventListener("error", () => img.remove());
     portrait.append(img);
 
@@ -289,7 +290,8 @@
   }
 
   function normalizedName(name) {
-    return name.toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/[^a-z0-9]+/g, "").trim();
+    return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/[^a-z0-9]+/g, "").trim();
   }
 
   function photoFor(name) {
