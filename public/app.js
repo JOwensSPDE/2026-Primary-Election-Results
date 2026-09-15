@@ -133,9 +133,30 @@
       els.update.textContent = `Checked ${formatTime(state.fetchedAt)}`;
     }
 
-    els.groups.replaceChildren(...groups.map(group => renderGroup(group, reporting)));
+    els.groups.replaceChildren(...renderGroups(reporting));
     els.groups.setAttribute("aria-busy", "false");
     requestAnimationFrame(postHeight);
+  }
+
+  function renderGroups(reporting) {
+    const rendered = [];
+    for (let index = 0; index < groups.length; index += 1) {
+      const group = groups[index];
+      const next = groups[index + 1];
+      const paired = (group.id === "us-senate-democratic" && next?.id === "us-senate-republican")
+        || (group.id === "attorney-general" && next?.id === "state-treasurer");
+
+      if (!paired) {
+        rendered.push(renderGroup(group, reporting));
+        continue;
+      }
+
+      const pair = element("div", "race-pair");
+      pair.append(renderGroup(group, reporting), renderGroup(next, reporting));
+      rendered.push(pair);
+      index += 1;
+    }
+    return rendered;
   }
 
   function renderGroup(group, reporting) {

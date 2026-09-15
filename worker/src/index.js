@@ -1,5 +1,8 @@
 const DEFAULT_SOURCE = "https://elections.delaware.gov/reports/PR2026.html";
 const CACHE_KEY = "delaware-primary-results-2026:last-good";
+const STATUS_KEY = "delaware-primary-results-2026:refresh-status";
+const DEFAULT_REFRESH_START = "2026-09-15T19:45:00-04:00";
+const DEFAULT_REFRESH_END = "2026-09-16T08:00:00-04:00";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -7,7 +10,7 @@ const jsonHeaders = {
 };
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const origin = allowedOrigin(request, env);
 
@@ -20,68 +23,134 @@ export default {
     }
 
     if (url.pathname === "/api/health") {
-      return apiResponse({ ok: true, service: "Delaware Primary Results 2026" }, 200, origin);
+      const [latest, refreshStatus] = await Promise.all([readLastGood(env), readRefreshStatus(env)]);
+      return apiResponse({
+        ok: true,
+        service: "Delaware Primary Results 2026",
+        cacheReady: Boolean(latest),
+        lastSuccessAt: refreshStatus?.lastSuccessAt || latest?.fetchedAt || null,
+        lastAttemptAt: refreshStatus?.lastAttemptAt || null,
+        lastError: refreshStatus?.lastError || null,
+        refreshWindow: {
+          startsAt: env.REFRESH_WINDOW_START || DEFAULT_REFRESH_START,
+          endsAt: env.REFRESH_WINDOW_END || DEFAULT_REFRESH_END,
+        },
+      }, 200, origin, { "cache-control": "no-store" });
     }
 
     if (url.pathname !== "/api/results") {
       return apiResponse({ error: "Not found" }, 404, origin);
     }
 
-    try {
-      const result = await getResults(request, env, ctx);
-      return apiResponse(result.body, 200, origin, {
-        "x-results-cache": result.cache,
-        "cache-control": "public, max-age=5, s-maxage=15, stale-while-revalidate=120",
-      });
-    } catch (error) {
-      const stale = await readLastGood(env);
-      if (stale) {
-        return apiResponse({ ...stale, stale: true, warning: "Showing the last successful update." }, 200, origin, {
-          "x-results-cache": "stale-kv",
-          "cache-control": "no-store",
-        });
-      }
-
+    if (!env.RESULTS_CACHE?.get) {
       return apiResponse({
-        error: "Results are temporarily unavailable.",
-        detail: safeError(error),
+        error: "Results cache is not configured.",
         sourceUrl: env.RESULTS_SOURCE_URL || DEFAULT_SOURCE,
       }, 503, origin, { "cache-control": "no-store" });
     }
+
+    const [latest, refreshStatus] = await Promise.all([readLastGood(env), readRefreshStatus(env)]);
+    if (!latest) {
+      return apiResponse({
+        error: "Results are not available yet.",
+        detail: "Waiting for the first successful scheduled refresh.",
+        sourceUrl: env.RESULTS_SOURCE_URL || DEFAULT_SOURCE,
+      }, 503, origin, { "cache-control": "no-store" });
+    }
+
+    const staleAfterSeconds = clampNumber(env.STALE_AFTER_SECONDS, 180, 60, 3600);
+    const lastSuccessAt = refreshStatus?.lastSuccessAt || latest.fetchedAt;
+    const lastSuccessMs = Date.parse(lastSuccessAt || "");
+    const refreshWindowActive = shouldRefreshAt(Date.now(), env);
+    const stale = refreshWindowActive && (!Number.isFinite(lastSuccessMs)
+      || Date.now() - lastSuccessMs > staleAfterSeconds * 1000);
+    const ttl = clampNumber(env.CACHE_SECONDS, 15, 5, 60);
+
+    return apiResponse({
+      ...latest,
+      stale,
+      checkedAt: lastSuccessAt || null,
+      warning: stale ? "Showing the last successful update while the source refresh recovers." : undefined,
+    }, 200, origin, {
+      "x-results-cache": stale ? "stale-kv" : "kv",
+      "cache-control": `public, max-age=5, s-maxage=${ttl}, stale-while-revalidate=120`,
+    });
+  },
+
+  scheduled(controller, env, ctx) {
+    const scheduledTime = controller?.scheduledTime ?? Date.now();
+    if (!shouldRefreshAt(scheduledTime, env)) return;
+    ctx.waitUntil(refreshResults(env));
   },
 };
 
-async function getResults(request, env, ctx) {
+export function shouldRefreshAt(timestamp, env = {}) {
+  const time = typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
+  const startsAt = Date.parse(env.REFRESH_WINDOW_START || DEFAULT_REFRESH_START);
+  const endsAt = Date.parse(env.REFRESH_WINDOW_END || DEFAULT_REFRESH_END);
+  return Number.isFinite(time) && Number.isFinite(startsAt) && Number.isFinite(endsAt)
+    && time >= startsAt && time < endsAt;
+}
+
+async function refreshResults(env) {
+  if (!env.RESULTS_CACHE?.put) throw new Error("RESULTS_CACHE KV binding is required for scheduled refreshes.");
+
   const sourceUrl = env.RESULTS_SOURCE_URL || DEFAULT_SOURCE;
-  const ttl = clampNumber(env.CACHE_SECONDS, 15, 5, 60);
-  const cache = caches.default;
-  const cacheUrl = new URL(request.url);
-  cacheUrl.pathname = "/internal/results-cache";
-  cacheUrl.search = `source=${encodeURIComponent(sourceUrl)}`;
-  const cacheRequest = new Request(cacheUrl, { method: "GET" });
-  const hit = await cache.match(cacheRequest);
+  const previous = await readRefreshStatus(env);
+  const now = new Date();
+  const attemptAt = now.toISOString();
+  const nextAttemptMs = Date.parse(previous?.nextAttemptAt || "");
 
-  if (hit) return { body: await hit.json(), cache: "hit" };
+  if (Number.isFinite(nextAttemptMs) && nextAttemptMs > now.getTime()) return;
 
-  const upstream = await fetch(sourceUrl, {
-    headers: {
-      "accept": "text/html,application/xhtml+xml",
-      "user-agent": "Spotlight Delaware election-results monitor/1.0 (+https://spotlightdelaware.org)",
-    },
-    cf: { cacheTtl: 0, cacheEverything: false },
-  });
+  try {
+    const upstream = await fetch(sourceUrl, {
+      headers: {
+        "accept": "text/html,application/xhtml+xml",
+        "user-agent": "Spotlight Delaware election-results monitor/1.1 (+https://spotlightdelaware.org)",
+      },
+      cf: { cacheTtl: 0, cacheEverything: false },
+    });
 
-  if (!upstream.ok) throw new Error(`Delaware results page returned HTTP ${upstream.status}`);
-  const html = await upstream.text();
-  const parsed = parseResultsHtml(html, sourceUrl);
-  const body = { ...parsed, fetchedAt: new Date().toISOString(), stale: false };
+    if (!upstream.ok) {
+      const error = new Error(`Delaware results page returned HTTP ${upstream.status}`);
+      error.status = upstream.status;
+      throw error;
+    }
 
-  const cached = new Response(JSON.stringify(body), {
-    headers: { ...jsonHeaders, "cache-control": `public, s-maxage=${ttl}` },
-  });
-  ctx.waitUntil(cache.put(cacheRequest, cached));
-  ctx.waitUntil(writeLastGood(env, body));
-  return { body, cache: "miss" };
+    const html = await upstream.text();
+    const parsed = parseResultsHtml(html, sourceUrl);
+    const body = { ...parsed, fetchedAt: attemptAt, stale: false };
+
+    await Promise.all([
+      writeLastGood(env, body),
+      writeRefreshStatus(env, {
+        lastAttemptAt: attemptAt,
+        lastSuccessAt: attemptAt,
+        lastError: null,
+        nextAttemptAt: null,
+        consecutiveFailures: 0,
+      }),
+    ]);
+  } catch (error) {
+    const consecutiveFailures = (previous?.consecutiveFailures || 0) + 1;
+    const backoffSeconds = retryDelaySeconds(error, consecutiveFailures);
+    await writeRefreshStatus(env, {
+      ...previous,
+      lastAttemptAt: attemptAt,
+      lastError: safeError(error),
+      nextAttemptAt: new Date(now.getTime() + backoffSeconds * 1000).toISOString(),
+      consecutiveFailures,
+    });
+    console.error("Scheduled Delaware results refresh failed:", safeError(error));
+  }
+}
+
+function retryDelaySeconds(error, failures) {
+  const status = Number(error?.status);
+  if (status === 429) return Math.min(900, 60 * (2 ** Math.min(failures, 4)));
+  if (!status || status >= 500) return Math.min(300, 60 * (2 ** Math.min(failures - 1, 3)));
+  return 60;
 }
 
 export function parseResultsHtml(html, sourceUrl = DEFAULT_SOURCE) {
@@ -246,12 +315,22 @@ function apiResponse(body, status, origin, extra = {}) {
 
 async function writeLastGood(env, body) {
   if (!env.RESULTS_CACHE?.put) return;
-  await env.RESULTS_CACHE.put(CACHE_KEY, JSON.stringify(body), { expirationTtl: 172800 });
+  await env.RESULTS_CACHE.put(CACHE_KEY, JSON.stringify(body));
 }
 
 async function readLastGood(env) {
   if (!env.RESULTS_CACHE?.get) return null;
   return env.RESULTS_CACHE.get(CACHE_KEY, "json");
+}
+
+async function writeRefreshStatus(env, body) {
+  if (!env.RESULTS_CACHE?.put) return;
+  await env.RESULTS_CACHE.put(STATUS_KEY, JSON.stringify(body), { expirationTtl: 604800 });
+}
+
+async function readRefreshStatus(env) {
+  if (!env.RESULTS_CACHE?.get) return null;
+  return env.RESULTS_CACHE.get(STATUS_KEY, "json");
 }
 
 function safeError(error) {

@@ -4,16 +4,18 @@ compatibility_date = "2026-09-01"
 
 [vars]
 RESULTS_SOURCE_URL = "https://elections.delaware.gov/reports/PR2026.html"
-ALLOWED_ORIGIN = "https://spotlightdelaware.org"
+ALLOWED_ORIGIN = "https://spotlightdelaware.org,https://jowensspde.github.io"
 CACHE_SECONDS = "15"
+STALE_AFTER_SECONDS = "180"
+REFRESH_WINDOW_START = "2026-09-15T19:45:00-04:00"
+REFRESH_WINDOW_END = "2026-09-16T08:00:00-04:00"
 
-# Recommended: create this namespace before deployment with:
-# npx wrangler kv namespace create RESULTS_CACHE
-# Then uncomment and replace the id below. KV stores the last good update so
-# the page can keep showing results during a temporary source-site outage.
-# [[kv_namespaces]]
-# binding = "RESULTS_CACHE"
-# id = "replace-with-your-kv-namespace-id"
+[[kv_namespaces]]
+binding = "RESULTS_CACHE"
+id = "510fd34e357b4298ab22ba6d17c688cb"
+
+[triggers]
+crons = ["45-59 23 15 9 *", "* 0-11 16 9 *"]
 
 [observability]
 enabled = true

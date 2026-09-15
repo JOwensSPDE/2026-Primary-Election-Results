@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseResultsHtml } from "../worker/src/index.js";
+import worker, { parseResultsHtml, shouldRefreshAt } from "../worker/src/index.js";
 
 const fixture = `
   <p id="lastUpdated">Data as of 09/15/2026 20:44:52</p>
@@ -35,3 +35,85 @@ test("parses statewide contests, parties, totals and reporting", () => {
 test("fails loudly when the statewide markup changes", () => {
   assert.throws(() => parseResultsHtml("<html></html>"), /statewide results section/i);
 });
+
+test("refresh window uses the configured Delaware election-night interval", () => {
+  assert.equal(shouldRefreshAt("2026-09-15T19:44:59-04:00"), false);
+  assert.equal(shouldRefreshAt("2026-09-15T19:45:00-04:00"), true);
+  assert.equal(shouldRefreshAt("2026-09-16T07:59:59-04:00"), true);
+  assert.equal(shouldRefreshAt("2026-09-16T08:00:00-04:00"), false);
+});
+
+test("scheduled refresh stores parsed results in KV", async () => {
+  const kv = createKv();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(fixture, { status: 200 });
+  let scheduledWork;
+
+  try {
+    worker.scheduled(
+      { scheduledTime: Date.parse("2026-09-16T00:01:00Z") },
+      { RESULTS_CACHE: kv, RESULTS_SOURCE_URL: "https://example.com/results" },
+      { waitUntil(promise) { scheduledWork = promise; } },
+    );
+    assert.ok(scheduledWork);
+    await scheduledWork;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const stored = await kv.get("delaware-primary-results-2026:last-good", "json");
+  const status = await kv.get("delaware-primary-results-2026:refresh-status", "json");
+  assert.equal(stored.contests[0].candidates[0].votes, 1500);
+  assert.equal(status.lastError, null);
+  assert.equal(status.consecutiveFailures, 0);
+});
+
+test("reader requests use KV without fetching the Delaware source", async () => {
+  const parsed = parseResultsHtml(fixture, "https://example.com/results");
+  const fetchedAt = new Date().toISOString();
+  const kv = createKv({
+    "delaware-primary-results-2026:last-good": { ...parsed, fetchedAt, stale: false },
+    "delaware-primary-results-2026:refresh-status": {
+      lastAttemptAt: fetchedAt,
+      lastSuccessAt: fetchedAt,
+      lastError: null,
+      nextAttemptAt: null,
+      consecutiveFailures: 0,
+    },
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Reader request must not fetch upstream"); };
+
+  try {
+    const response = await worker.fetch(
+      new Request("https://worker.example/api/results", {
+        headers: { origin: "https://jowensspde.github.io" },
+      }),
+      {
+        RESULTS_CACHE: kv,
+        ALLOWED_ORIGIN: "https://spotlightdelaware.org,https://jowensspde.github.io",
+      },
+    );
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-results-cache"), "kv");
+    assert.equal(response.headers.get("access-control-allow-origin"), "https://jowensspde.github.io");
+    assert.equal(body.contests[0].candidates[0].votes, 1500);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+function createKv(initial = {}) {
+  const values = new Map(Object.entries(initial).map(([key, value]) => [key, JSON.stringify(value)]));
+  return {
+    async get(key, type) {
+      const value = values.get(key);
+      if (value == null) return null;
+      return type === "json" ? JSON.parse(value) : value;
+    },
+    async put(key, value) {
+      values.set(key, value);
+    },
+  };
+}

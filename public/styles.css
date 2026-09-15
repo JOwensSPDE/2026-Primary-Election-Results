@@ -67,6 +67,10 @@ h1 { max-width: 820px; margin: 0; font: 800 clamp(42px, 7vw, 78px)/.97 "Montserr
 .notice.error { border-color: #e4aaa7; background: #fff1f0; color: #7d2924; }
 .results-shell { padding: 32px 0 72px; }
 .race-group { margin: 0 0 46px; }
+.race-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 19px; align-items: start; margin: 0 0 46px; }
+.race-pair .race-group { min-width: 0; margin: 0; }
+.race-pair .race-grid { grid-template-columns: minmax(0, 1fr); }
+.race-pair .group-title { font-size: clamp(24px, 3vw, 31px); }
 .group-title { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; font: 800 clamp(25px, 4vw, 36px)/1.1 "Montserrat", sans-serif; letter-spacing: -.025em; }
 .group-title::after { content: ""; height: 1px; background: #ccd0d1; flex: 1; }
 .race-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 19px; align-items: start; }
@@ -102,6 +106,8 @@ noscript { display: block; padding: 20px; text-align: center; background: #fff1c
   .hero { padding: 45px 0; }
   .hero-grid { grid-template-columns: 1fr; gap: 32px; }
   .statewide-card { max-width: 470px; }
+  .race-pair { grid-template-columns: 1fr; gap: 38px; margin-bottom: 46px; }
+  .race-pair .group-title { font-size: 25px; }
   .race-grid { grid-template-columns: 1fr; }
   .status-inner { padding-top: 10px; padding-bottom: 10px; flex-wrap: wrap; }
   .status-inner p { order: 3; flex-basis: 100%; }

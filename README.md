@@ -9,9 +9,12 @@ A responsive election-night results page and Cloudflare Worker for Delaware's Se
 - 80 qualified candidates across 33 party-specific contests.
 - 80 optimized circular headshots, covering every candidate currently included.
 - Vote totals, vote-share percentages, party-coded stacked vote-share graphics (blue for Democratic races and red for Republican races), and statewide precinct-reporting progress.
-- 20-second browser refreshes beginning at 8 p.m. Eastern on election night.
+- Tighter, face-centered framing across all 80 candidate portraits without altering candidate appearance.
+- Paired desktop rows for the Democratic and Republican U.S. Senate contests and for Attorney General and State Treasurer; the cards stack in the same order on mobile.
+- 20-second browser refreshes beginning at 8 p.m. Eastern on election night, served entirely from Cloudflare KV.
 - A Cloudflare Worker parser for Delaware's statewide result tables.
-- 15-second edge caching and optional KV storage for the last successful update.
+- A scheduled source refresh once per minute from 7:45 p.m. through 8 a.m. Eastern, so reader traffic never multiplies requests to Delaware.
+- Permanent KV storage for the last successful result and automatic retry delays after source errors or rate limiting.
 - A clearly labeled design-preview mode using fictional totals.
 
 ## Preview locally
@@ -41,13 +44,13 @@ Open `http://localhost:4173/?demo=1` to see the complete design with fictional d
 
    If Delaware publishes a different address, change `RESULTS_SOURCE_URL` in `worker/wrangler.toml`. The official 2026 page is not available before election night, so this must be part of the election-night preflight.
 
-3. Recommended: create the last-good-results store:
+3. Confirm the `RESULTS_CACHE` binding in `worker/wrangler.toml`. This Spotlight Delaware package is already configured with namespace ID `510fd34e357b4298ab22ba6d17c688cb`. If deploying from a different Cloudflare account, create a replacement namespace:
 
    ```bash
    npx wrangler kv namespace create RESULTS_CACHE
    ```
 
-   Copy the returned ID into the commented `[[kv_namespaces]]` block in `worker/wrangler.toml`, then uncomment that block. The Worker functions without KV, but KV lets it keep serving the latest successful update if the state website temporarily fails.
+   Copy the returned ID into the `[[kv_namespaces]]` block. KV is required because public reader requests use the stored copy rather than fetching Delaware's website directly.
 
 4. Deploy:
 
@@ -55,9 +58,11 @@ Open `http://localhost:4173/?demo=1` to see the complete design with fictional d
    npm run worker:deploy
    ```
 
-5. Copy the deployed `workers.dev` URL into `public/config.js`, keeping `/api/results` at the end.
+   Deployment should list the KV binding and two scheduled triggers. The triggers cover 7:45 p.m. Sept. 15 through 8 a.m. Sept. 16 Eastern; their cron expressions are written in UTC.
 
-6. Set `ALLOWED_ORIGIN` in `worker/wrangler.toml` to the exact origin hosting the results page. The default allows `https://spotlightdelaware.org`. During GitHub Pages testing, add that origin as a comma-separated second value.
+5. Confirm the deployed `workers.dev` URL in `public/config.js`, keeping `/api/results` at the end. The supplied file is already configured for `delaware-primary-results-2026.spotlightdelaware.workers.dev`.
+
+6. Set `ALLOWED_ORIGIN` in `worker/wrangler.toml` to the exact origins hosting the results page. The supplied configuration allows both `https://spotlightdelaware.org` and `https://jowensspde.github.io`.
 
 ## Deploy the page
 
@@ -105,6 +110,8 @@ The Dawn Briggs and LaDonna Graham files were supplied separately and are alread
 - Confirm Delaware's results URL from its official results index.
 - Run `npm run smoke:source -- https://elections.delaware.gov/reports/PR2026.html` as soon as the page exists.
 - Verify `/api/health` and `/api/results` on the deployed Worker.
+- Before 7:45 p.m., `/api/health` can correctly report `cacheReady: false`; the first successful scheduled refresh changes it to `true`.
+- Keep `npx wrangler tail --config worker/wrangler.toml` open to monitor scheduled refreshes and source errors.
 - Confirm that all 33 contest cards appear and compare several totals to Delaware's page.
 - Test the GitHub Pages URL inside the actual Newspack iframe on desktop and mobile.
 - Keep the Delaware source page linked beneath the infographic.
@@ -112,6 +119,6 @@ The Dawn Briggs and LaDonna Graham files were supplied separately and are alread
 
 ## Data behavior
 
-The Worker extracts the `#statewide` section, reads the update time and statewide precinct count, then converts each party table to JSON. The front end keeps only the requested 2026 contests and displays them in a fixed editorial order. Candidate names in the seed file are used to stabilize capitalization and photo matching.
+Once per minute during the configured election-night window, the Worker fetches Delaware's page, extracts the `#statewide` section, reads the update time and statewide precinct count, and stores the parsed JSON in KV. Public `/api/results` requests read only from KV, so any number of readers still produces no additional traffic to Delaware. The front end keeps only the requested 2026 contests and displays them in a fixed editorial order. Candidate names in the seed file are used to stabilize capitalization and photo matching.
 
-The HTML parser deliberately returns an error if Delaware removes or renames the statewide section. With KV enabled, the API then serves the last good result and marks it stale instead of silently returning incomplete totals.
+The HTML parser deliberately returns an error if Delaware removes or renames the statewide section. A failed scheduled refresh never overwrites the last good result. During the active refresh window, the API marks the saved result stale after three minutes without a successful source check and displays a warning instead of silently returning incomplete totals.
